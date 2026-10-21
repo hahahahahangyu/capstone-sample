@@ -1,0 +1,3 @@
+# Choose only one OpenCV distribution per virtual environment.
+opencv-contrib-python>=4.8,<6
+numpy>=1.26
