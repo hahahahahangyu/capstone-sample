@@ -1,3 +1,7 @@
 # Choose only one OpenCV distribution per virtual environment.
-opencv-contrib-python>=4.8,<6
-numpy>=1.26
+# opencv-contrib 4.11 is the newest that works with numpy 1.x; ultralytics on
+# macOS rejects numpy 2.0-2.3.4, and 2.0.2 is the last numpy for Python 3.9.
+opencv-contrib-python>=4.8,<4.12
+numpy>=1.26,<2
+ultralytics>=8.3
+pytest>=7

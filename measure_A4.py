@@ -15,14 +15,13 @@ import csv
 import cv2
 import numpy as np
 
+from pothole.marker import ARUCO_ID, detect_marker, draw_marker, make_detector
+from pothole.measure import measure_rectangle
+
 BASE = Path(__file__).resolve().parent
 IMAGE_DIR = BASE / "A4_images"
 OUTPUT_DIR = BASE / "A4_results"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-ARUCO_SIZE_CM = 10.0  # outer square; confirmed physical measurement
-ARUCO_ID = 0
-ARUCO_DICT = cv2.aruco.DICT_4X4_50
 
 
 def select_corners(image, marker_corners, filename):
@@ -71,26 +70,6 @@ def select_corners(image, marker_corners, filename):
             return None
 
 
-def measure_on_plane(marker_px, rectangle_px):
-    """Project a four-corner rectangle onto the ArUco marker's cm plane."""
-    size = ARUCO_SIZE_CM
-    cm_marker = np.array([
-        [0, 0], [size, 0], [size, size], [0, size]
-    ], dtype=np.float32)
-    H = cv2.getPerspectiveTransform(marker_px.astype(np.float32), cm_marker)
-    cm_points = cv2.perspectiveTransform(
-        rectangle_px.reshape(1, 4, 2).astype(np.float32), H
-    )[0]
-
-    # Adjacent sides: [0-1, 1-2, 2-3, 3-0]
-    edges = np.linalg.norm(np.roll(cm_points, -1, axis=0) - cm_points, axis=1)
-    pair_1 = float((edges[0] + edges[2]) / 2.0)
-    pair_2 = float((edges[1] + edges[3]) / 2.0)
-    longer_cm, shorter_cm = sorted((pair_1, pair_2), reverse=True)
-    area_cm2 = float(cv2.contourArea(cm_points))
-    return longer_cm, shorter_cm, area_cm2
-
-
 def main():
     if not IMAGE_DIR.is_dir():
         raise FileNotFoundError(f"Create your image folder first: {IMAGE_DIR}")
@@ -111,10 +90,7 @@ def main():
     )
     actual_area_cm2 = actual_long_cm * actual_short_cm
 
-    dictionary = cv2.aruco.getPredefinedDictionary(ARUCO_DICT)
-    detector = cv2.aruco.ArucoDetector(
-        dictionary, cv2.aruco.DetectorParameters()
-    )
+    detector = make_detector()
 
     csv_path = OUTPUT_DIR / "measurements.csv"
     with csv_path.open("w", newline="") as file:
@@ -130,12 +106,10 @@ def main():
                 print(f"{path.name}: image could not be read. Skipping.")
                 continue
 
-            corners, ids, _ = detector.detectMarkers(image)
-            if ids is None or ARUCO_ID not in ids.flatten().tolist():
+            marker_px = detect_marker(image, ARUCO_ID, detector)
+            if marker_px is None:
                 print(f"{path.name}: ArUco ID {ARUCO_ID} not detected. Skipping.")
                 continue
-            index = ids.flatten().tolist().index(ARUCO_ID)
-            marker_px = corners[index].reshape(4, 2).astype(np.float32)
             print(f"\n{path.name}: ArUco marker detected.")
 
             rectangle_px = select_corners(image, marker_px, path.name)
@@ -143,7 +117,7 @@ def main():
                 print(f"{path.name}: skipped by user.")
                 continue
 
-            length_cm, width_cm, area_cm2 = measure_on_plane(
+            length_cm, width_cm, area_cm2 = measure_rectangle(
                 marker_px, rectangle_px
             )
             length_err = abs(length_cm - actual_long_cm) / actual_long_cm * 100
@@ -157,8 +131,7 @@ def main():
             cv2.fillPoly(mask, [polygon], 255)
             annotated = image.copy()
             cv2.polylines(annotated, [polygon], True, (0, 255, 0), 8)
-            cv2.aruco.drawDetectedMarkers(annotated, [corners[index]],
-                                         np.array([[ARUCO_ID]], dtype=np.int32))
+            draw_marker(annotated, marker_px)
             cv2.imwrite(str(OUTPUT_DIR / f"{path.stem}_mask.png"), mask)
             cv2.imwrite(str(OUTPUT_DIR / f"{path.stem}_measured.jpg"), annotated)
 
